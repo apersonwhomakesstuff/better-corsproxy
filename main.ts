@@ -75,9 +75,16 @@ Deno.serve(async (req) => {
 
     const contentType = response.headers.get("content-type") || "";
     const outHeaders = new Headers(response.headers);
+
+    // CORS headers
     outHeaders.set("Access-Control-Allow-Origin", "*");
-    outHeaders.set("Content-Security-Policy", "frame-ancestors 'none';");
-    outHeaders.set("X-Frame-Options", "DENY");
+    outHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    outHeaders.set("Access-Control-Allow-Headers", "*");
+    outHeaders.set("Access-Control-Allow-Credentials", "true");
+
+    // Allow embedding in iframes
+    outHeaders.delete("X-Frame-Options");
+    outHeaders.delete("Content-Security-Policy");
 
     // HTML rewriting
     if (contentType.includes("text/html")) {
