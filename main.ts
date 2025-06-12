@@ -39,7 +39,6 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   let target = url.searchParams.get("url");
 
-  // Build DuckDuckGo target if possible
   if (!target) {
     const alt = buildDuckDuckGoUrl(url);
     if (alt) target = alt;
@@ -49,10 +48,8 @@ Deno.serve(async (req) => {
     return new Response("Missing ?url= parameter", { status: 400 });
   }
 
-  // Normalize raw domains
   target = normalizeTarget(target);
 
-  // Loop protection
   if (target.startsWith(PROXY_ORIGIN)) {
     return new Response("⚠️ Loop detected", { status: 508 });
   }
@@ -65,6 +62,7 @@ Deno.serve(async (req) => {
     headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
     headers.set("Accept-Language", "en-US,en;q=0.9");
     headers.set("Connection", "keep-alive");
+    headers.set("Accept-Encoding", "identity"); // Prevent compressed encoding
 
     const response = await fetch(target, {
       method: req.method,
@@ -76,15 +74,14 @@ Deno.serve(async (req) => {
     const contentType = response.headers.get("content-type") || "";
     const outHeaders = new Headers(response.headers);
 
-    // CORS headers
+    // Set CORS and iframe-related headers
     outHeaders.set("Access-Control-Allow-Origin", "*");
-    outHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    outHeaders.set("Access-Control-Allow-Headers", "*");
-    outHeaders.set("Access-Control-Allow-Credentials", "true");
+    outHeaders.set("X-Frame-Options", "ALLOWALL"); // allow iframe embedding
+    outHeaders.set("Content-Security-Policy", "frame-ancestors *;");
 
-    // Allow embedding in iframes
-    outHeaders.delete("X-Frame-Options");
-    outHeaders.delete("Content-Security-Policy");
+    // Remove problematic headers
+    outHeaders.delete("content-encoding");
+    outHeaders.delete("content-length");
 
     // HTML rewriting
     if (contentType.includes("text/html")) {
@@ -106,6 +103,7 @@ Deno.serve(async (req) => {
       rewriteAttr("form", "action");
       rewriteAttr("source", "src");
       rewriteAttr("video", "src");
+      rewriteAttr("iframe", "src");
 
       const proxiedHtml = doc.documentElement?.outerHTML ?? html;
       return new Response(proxiedHtml, {
@@ -117,6 +115,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Pass through non-HTML content (but without incorrect headers)
     return new Response(response.body, {
       status: response.status,
       headers: outHeaders,
