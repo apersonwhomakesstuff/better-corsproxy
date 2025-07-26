@@ -8,7 +8,8 @@ const PROXY_ORIGIN = "https://better-corsproxy.deno.dev";
 function proxyUrl(rawUrl: string, base: string): string {
   try {
     const absolute = new URL(rawUrl, base).href;
-    if (absolute.startsWith(PROXY_ORIGIN)) return rawUrl;
+    // Avoid double-proxying URLs
+    if (absolute.startsWith(PROXY_ORIGIN)) return absolute;
     return `${PROXY_ORIGIN}/?url=${encodeURIComponent(absolute)}`;
   } catch {
     return rawUrl;
@@ -57,6 +58,7 @@ Deno.serve(async (req) => {
   console.log("Proxying:", target);
 
   try {
+    // Clone and modify headers from original request
     const headers = new Headers(req.headers);
     headers.set("User-Agent", USER_AGENT);
     headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
@@ -64,6 +66,7 @@ Deno.serve(async (req) => {
     headers.set("Connection", "keep-alive");
     headers.set("Accept-Encoding", "identity"); // Prevent compressed encoding
 
+    // Important: req.body is a ReadableStream — pass it as is to fetch
     const response = await fetch(target, {
       method: req.method,
       headers,
@@ -76,14 +79,13 @@ Deno.serve(async (req) => {
 
     // Set CORS and iframe-related headers
     outHeaders.set("Access-Control-Allow-Origin", "*");
-    outHeaders.set("X-Frame-Options", "ALLOWALL"); // allow iframe embedding
+    outHeaders.set("X-Frame-Options", "ALLOWALL"); // Non-standard, but to allow iframe embedding
     outHeaders.set("Content-Security-Policy", "frame-ancestors *;");
 
     // Remove problematic headers
     outHeaders.delete("content-encoding");
     outHeaders.delete("content-length");
 
-    // HTML rewriting
     if (contentType.includes("text/html")) {
       const html = await response.text();
       const doc = new DOMParser().parseFromString(html, "text/html");
@@ -115,12 +117,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Pass through non-HTML content (but without incorrect headers)
+    // Pass through non-HTML content as a stream
     return new Response(response.body, {
       status: response.status,
       headers: outHeaders,
     });
   } catch (err) {
-    return new Response("Proxy error: " + err.message, { status: 500 });
+    return new Response("Proxy error: " + (err.message || err.toString()), { status: 500 });
   }
 });
